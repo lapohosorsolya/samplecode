@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# eg.: repeat_run_model -i /mnt/data/orsi/datasets -m FullRes -p /mnt/data/orsi/anaconda3/bin/python -o /mnt/data/orsi/results
+
+# help message
+display_help()
+{
+    echo -e "`cat ./docs/repeat_run_model_help.txt`"
+}
+
+
+# initialize default variables
+PYTHON_ENV=0
+MODEL_NAME=0
+INPUT_DIR=0
+OUTPUT_DIR=0
+valid_model_names=("CNNRes" "CNNResPlus" "FullRes" "FullResMTL")
+
+
+# get options
+while getopts "hp:m:i:o:" option; do
+    case $option in
+        # display help message
+        h)  display_help
+            exit 0;;
+        # input directory
+        i)  INPUT_DIR=$OPTARG
+            if [[ -d $INPUT_DIR ]]; then
+                echo
+                echo "Input directory: $INPUT_DIR"
+            else
+                echo "ERROR: please enter a valid directory for option -i"
+                exit 2
+            fi;;
+        # output directory
+        o)  OUTPUT_DIR=$OPTARG
+            if [[ -d $OUTPUT_DIR ]]; then
+                echo
+                echo "Output directory: $OUTPUT_DIR"
+            else
+                echo "ERROR: please enter a valid directory for option -o"
+                exit 2
+            fi;;
+        # model name; must be one of FullRes or FullResMTL
+        m)  TEMP_NAME=$OPTARG
+            for i in ${valid_model_names[@]}; do
+                if [[ "$TEMP_NAME" == "$i" ]]; then
+                    MODEL_NAME=$i
+                fi
+            done
+            if [ "$MODEL_NAME" = "0" ]; then # FIX: change equality
+                echo "ERROR: please enter one of the following for option -m"
+                echo ${valid_model_names[@]}
+                exit 1
+            else
+                echo 
+                echo "Model: $MODEL_NAME"
+            fi;;
+        # python environment
+        p)  PYTHON_ENV=$OPTARG
+            if [[ -f $PYTHON_ENV ]]; then
+                echo
+                echo "Env: $PYTHON_ENV"
+            else
+                echo "ERROR: please enter a valid directory for option -p"
+                exit 2
+            fi;;
+        # exit on invalid options
+        \?) echo "ERROR: invalid option usage"
+            display_help
+            exit 1;;
+    esac
+done
+
+
+# get the list unique strings in filenames of the input directory
+runs=( $(ls ${INPUT_DIR}/*.pt | awk -F '/' '{print $NF}'  | awk -F '_' '{print $1 "_" $2}' | uniq) )
+n_runs=${#runs[@]}
+
+
+echo ":::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
+
+# set up logging directory
+LOG_DIR="${OUTPUT_DIR}/.logs"
+if [[ -d $LOG_DIR ]]; then
+    echo
+    echo "Writing log files to existing directory $LOG_DIR"
+else
+    mkdir $LOG_DIR
+    echo
+    echo "Made new directory $LOG_DIR"
+fi
+
+# run the model for each unique string
+j=1
+for i in ${runs[@]}; do
+    echo
+    echo "Starting run # $j of $n_runs"
+    echo "Dataset $i"
+    echo
+    train_file=$(ls ${INPUT_DIR}/*.pt | grep $i | grep train)
+    test_file=$(ls ${INPUT_DIR}/*.pt | grep $i | grep test)
+    cmd="$PYTHON_ENV run_model_${MODEL_NAME}.py -i ${train_file[0]} -j ${test_file[0]} -o $OUTPUT_DIR > ${LOG_DIR}/${i}.log"
+    echo $cmd
+    eval $cmd
+    ((j++))
+done
+
+echo
+echo "Finished all runs!"
+echo ":::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
+

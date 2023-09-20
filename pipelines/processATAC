@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Pipeline to process ATAC-seq data, from raw fastq files to peaks.
+# Uses STAR for mapping (mm10 or hg38 reference genome).
+# Uses HOMER to make tag directories, generate genome browser files, and find peaks.
+
+
+# require inputs: (1) input directory (raw data), (2) output directory (peaks?), (3) genome
+if (($# != 3)); then
+    echo "Usage: $0 <input directory> <output directory> <genome (mouse/human)>"
+    exit 1
+fi
+
+
+# print the input and output directories
+echo "Read files from $1"
+echo "Output to $2"
+
+
+# create output if it doesn't exist yet
+if [[ -d $2 ]]; then
+    echo $2 exists
+else
+    mkdir $2
+fi
+
+
+# create subdirectories
+mapped=${2}/mapped
+tagdir=${2}/tagdir
+browser=${2}/browser
+peaks=${2}/peaks
+mkdir $mapped $tagdir $browser $peaks
+echo "Created subdirectories"
+
+
+# genome settings
+if (($3 == "mouse")); then
+    genome=mm10
+    gendir=/mnt/data/genomes/mm10_star/
+else
+    genome=hg38
+    gendir=/mnt/data/genomes/hg38_star/
+fi
+echo "Using $genome genome in $gendir"
+
+
+# mapping and sample list
+samples=()
+for f in ${1}/*.fastq.gz; do
+    name=$(echo ${f##*/})
+    subname=$(echo $name | cut -f1 -d.)
+    echo "Mapping $f ..."
+    STAR --genomeDir $gendir --runThreadN 16 --readFilesType Fastx --readFilesIn $f --readFilesCommand gunzip -c --outFileNamePrefix ${mapped}/${subname}
+    samples+=($subname)
+done
+num=$(ls -1q ${mapped}/* | wc -l)
+echo "$num files have been mapped, see $mapped"
+
+
+# create tag directories
+for i in "${samples[@]}"; do
+    echo "Generating tag directory for $subdir ..."
+    makeTagDirectory ${tagdir}/${i} ${mapped}/${i}Aligned.out.sam -format sam -genome $genome
+done
+num=$(ls -1q ${tagdir}/* | wc -l)
+echo "$num tag directories have been generated, see $tagdir"
+
+
+# generate browser files
+for i in "${samples[@]}"; do
+    tagDir2bed.pl ${tagdir}/${i}/ > ${browser}/${i}.bed
+done
+num=$(ls -1q ${browser}/* | wc -l)
+echo "$num browser files have been generated, see $browser"
+
+
+# generate peak files
+for i in "${samples[@]}"; do
+    findPeaks ${tagdir}/${i}/ -style factor > ${peaks}/${i}.txt
+done
+num=$(ls -1q ${peaks}/* | wc -l)
+echo "$num peak files have been generated, see $peaks"
+
+echo "DONE!"
